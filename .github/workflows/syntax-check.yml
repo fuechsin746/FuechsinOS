@@ -1,0 +1,38 @@
+name: FüchsinOS CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  validate-python:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Check for Syntax Errors
+      run: |
+        # This checks for compile-time errors without running the script
+        python -m py_compile install.py
+
+  validate-shell:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: ShellCheck
+      run: |
+        # Checks user_setup.sh or any other scripts for common errors
+        if [ -f "user_setup.sh" ]; then
+          sudo apt-get install -y shellcheck
+          shellcheck user_setup.sh
+        fi

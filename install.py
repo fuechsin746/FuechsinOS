@@ -3,24 +3,38 @@ import os
 import subprocess
 import getpass
 import shutil
+from datetime import datetime
 
 # --- FüchsinOS Configuration & Branding ---
 NAME_UTF8 = "FüchsinOS"
 NAME_ASCII = "FuechsinOS"
+# Log path relative to the Live ISO /mnt
+LOG_PATH = "/mnt/var/log/install.log"
 
 def run(cmd):
-    subprocess.run(cmd, shell=True, check=True)
+    """Runs command, shows output, and appends to log file"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    formatted_cmd = f"\n--- [{timestamp}] Executing: {cmd} ---\n"
+    
+    # Ensure log directory exists
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+    
+    with open(LOG_PATH, "a") as f:
+        f.write(formatted_cmd)
+    
+    # Execute with tee to see it and save it
+    subprocess.run(f"{cmd} 2>&1 | tee -a {LOG_PATH}", shell=True, check=True)
 
 def setup_wifi():
     print(f"--- {NAME_UTF8}: Dual-Band Wi-Fi Setup ---")
     try:
         subprocess.run("systemctl start iwd", shell=True, capture_output=True)
         device = "wlan0"
-        run(f"iwctl station {device} scan")
+        subprocess.run(f"iwctl station {device} scan", shell=True)
         subprocess.run(f"iwctl station {device} get-networks", shell=True)
         ssid = input("Enter SSID: ")
         password = getpass.getpass(f"Enter password for {ssid}: ")
-        run(f"iwctl station {device} connect '{ssid}' --passphrase '{password}'")
+        subprocess.run(f"iwctl station {device} connect '{ssid}' --passphrase '{password}'", shell=True)
         subprocess.run("sleep 3", shell=True)
         return ssid
     except Exception as e:
@@ -88,6 +102,7 @@ def setup_disk(disk):
         run(f"mount -o {opts},subvol={sub} {disk}p2 {full_path}")
 
 def unified_chroot_setup(config, ssid):
+    # We use double curly braces {{ }} for shell variables to escape Python f-string logic
     chroot_script = f"""
 # 1. Branding & Localization
 cat <<EOF > /etc/os-release
@@ -134,10 +149,8 @@ mkdir -p /etc/skel/.local/{{share,bin}}
 mkdir -p /root/.config/zsh
 chown -R {config['USER']}:{config['USER']} /home/{config['USER']}
 
-# 7. Write .zshrc Function
-write_zshrc() {{
-    local target="\$1"
-    cat <<EOF2 > "\$target"
+# 7. Write .zshrc
+cat <<EOF2 > /etc/skel/.config/zsh/.zshrc
 export XDG_CONFIG_HOME=\\$HOME/.config
 export XDG_CACHE_HOME=\\$HOME/.cache
 export XDG_DATA_HOME=\\$HOME/.local/share
@@ -155,13 +168,11 @@ echo -e "\\\\e[35m⚡ {NAME_UTF8} | Ryzen 3 7320U\\\\e[0m"
 echo -n "● Snapshots: " && snapper list | tail -n +3 | wc -l | tr -d '\\\\n' && echo " entries"
 echo -e "\\\\e[32m------------------------------------------\\\\e[0m"
 EOF2
-}}
 
-write_zshrc "/root/.config/zsh/.zshrc"
-write_zshrc "/home/{config['USER']}/.config/zsh/.zshrc"
-write_zshrc "/etc/skel/.config/zsh/.zshrc"
+cp /etc/skel/.config/zsh/.zshrc /root/.config/zsh/.zshrc
+cp /etc/skel/.config/zsh/.zshrc /home/{config['USER']}/.config/zsh/.zshrc
 
-# 8. User-Space Install
+# 8. User-Space Install (Paru/Rust)
 sudo -i -u {config['USER']} bash <<USEREOF
     export HOME=/home/{config['USER']}
     export XDG_CONFIG_HOME=\\$HOME/.config
@@ -174,10 +185,10 @@ sudo -i -u {config['USER']} bash <<USEREOF
     cd /tmp && git clone https://aur.archlinux.org/paru-bin.git && cd paru-bin && makepkg -si --noconfirm
 USEREOF
 
-# 9. Boot & Hardware
+# 9. Boot & Hardware (FIXED ESCAPING)
 systemctl enable NetworkManager sshd reflector.timer btrfs-scrub@-.timer power-profiles-daemon
 refind-install
-PARTUUID=\$(blkid -s PARTUUID -o value {config['DISK']}p2)
+PARTUUID=\\$(blkid -s PARTUUID -o value {config['DISK']}p2)
 echo "\\"Boot {NAME_ASCII}\\" \\"rw root=PARTUUID=\$PARTUUID rootflags=subvol=@ quiet amd_pstate=active icon=/EFI/refind/icons/os_arch.png\\"" > /boot/refind_linux.conf
 
 # 10. Wi-Fi
@@ -199,8 +210,16 @@ echo -e "[device]\\nwifi.backend=iwd" >> /etc/NetworkManager/NetworkManager.conf
 if __name__ == "__main__":
     current_ssid = setup_wifi()
     CONFIG = get_user_input()
+    
+    # Initialize the log file
+    os.makedirs("/mnt/var/log", exist_ok=True)
+    with open(LOG_PATH, "w") as f:
+        f.write(f"--- {NAME_UTF8} Installation Started ---\n")
+
     setup_disk(CONFIG['DISK'])
     run(f"pacstrap -K /mnt {' '.join(PKGS)}")
     run("genfstab -U /mnt >> /mnt/etc/fstab")
     unified_chroot_setup(CONFIG, current_ssid)
+    
     print(f"\n--- {NAME_UTF8} Successfully Installed ---")
+    print(f"Review your install log at: /var/log/install.log")

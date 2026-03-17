@@ -116,50 +116,84 @@ echo 'include "/usr/share/nano-syntax-highlighting/*.nanorc"' >> /etc/nanorc
 sed -i 's/HOOKS=(base udev/HOOKS=(systemd sd-vconsole/' /etc/mkinitcpio.conf
 mkinitcpio -P
 
-# 4. User
+# 4. Global Shell & XDG Pointer
+sed -i 's/SHELL=\\/bin\\/bash/SHELL=\\/usr\\/bin\\/zsh/' /etc/default/useradd
+mkdir -p /etc/zsh
+echo 'export ZDOTDIR="\$HOME/.config/zsh"' > /etc/zsh/zshenv
+
+# 5. Root & User Configuration
+usermod -s /usr/bin/zsh root
 useradd -m -G wheel -s /usr/bin/zsh -c "{config['FULL_NAME']}" {config['USER']}
 echo "root:{config['ROOT_PASS']}" | chpasswd
 echo "{config['USER']}:{config['USER_PASS']}" | chpasswd
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
+# 6. Skeleton & Home Perms
+mkdir -p /etc/skel/.config/zsh
+mkdir -p /etc/skel/.local/{{share,bin}}
+mkdir -p /root/.config/zsh
 chown -R {config['USER']}:{config['USER']} /home/{config['USER']}
 
-# 5. User-Space
-sudo -i -u {config['USER']} bash <<USEREOF
-    export HOME=/home/{config['USER']}
-    export XDG_CONFIG_HOME=\\$HOME/.config
-    export ZDOTDIR=\\$HOME/.config/zsh
-    mkdir -p \\$XDG_CONFIG_HOME/{{zsh,nvim,npm,pip,paru,gnupg}}
-    mkdir -p \\$HOME/.local/{{share/cargo,share/rustup,bin}}
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-    cat <<EOF2 > \\$ZDOTDIR/.zshrc
+# 7. Write .zshrc Function
+write_zshrc() {{
+    local target="\$1"
+    cat <<EOF2 > "\$target"
+export XDG_CONFIG_HOME=\\$HOME/.config
+export XDG_CACHE_HOME=\\$HOME/.cache
+export XDG_DATA_HOME=\\$HOME/.local/share
+export ZDOTDIR=\\$HOME/.config/zsh
+export RUSTUP_HOME=\\$XDG_DATA_HOME/rustup
+export CARGO_HOME=\\$XDG_DATA_HOME/cargo
+export PATH="\\$HOME/.local/bin:\\$CARGO_HOME/bin:\\$PATH"
+
 set -opt prompt_subst
 function parse_git() {{ git branch 2>/dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\\\\1)/' }}
 PROMPT='%F{{green}}%n@%m%f:%F{{blue}}%~%f%F{{cyan}}\$(parse_git)%f %# '
-export PATH="\\$HOME/.local/bin:\\$HOME/.local/share/cargo/bin:\\$PATH"
 alias panic="snapper list | tail -n 5"
-echo -e "\\e[35m⚡ {NAME_UTF8} | Ryzen 3 7320U\\e[0m"
-echo -n "● Snapshots: " && snapper list | tail -n +3 | wc -l | tr -d '\\n' && echo " entries"
-echo -e "\\e[32m------------------------------------------\\e[0m"
+
+echo -e "\\\\e[35m⚡ {NAME_UTF8} | Ryzen 3 7320U\\\\e[0m"
+echo -n "● Snapshots: " && snapper list | tail -n +3 | wc -l | tr -d '\\\\n' && echo " entries"
+echo -e "\\\\e[32m------------------------------------------\\\\e[0m"
 EOF2
+}}
+
+write_zshrc "/root/.config/zsh/.zshrc"
+write_zshrc "/home/{config['USER']}/.config/zsh/.zshrc"
+write_zshrc "/etc/skel/.config/zsh/.zshrc"
+
+# 8. User-Space Install
+sudo -i -u {config['USER']} bash <<USEREOF
+    export HOME=/home/{config['USER']}
+    export XDG_CONFIG_HOME=\\$HOME/.config
+    export XDG_DATA_HOME=\\$HOME/.local/share
+    export ZDOTDIR=\\$HOME/.config/zsh
+    export RUSTUP_HOME=\\$XDG_DATA_HOME/rustup
+    export CARGO_HOME=\\$XDG_DATA_HOME/cargo
+    
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
     cd /tmp && git clone https://aur.archlinux.org/paru-bin.git && cd paru-bin && makepkg -si --noconfirm
 USEREOF
 
-# 6. Boot & Hardware (rEFInd with Arch Icon)
+# 9. Boot & Hardware
 systemctl enable NetworkManager sshd reflector.timer btrfs-scrub@-.timer power-profiles-daemon
 refind-install
 PARTUUID=\$(blkid -s PARTUUID -o value {config['DISK']}p2)
 echo "\\"Boot {NAME_ASCII}\\" \\"rw root=PARTUUID=\$PARTUUID rootflags=subvol=@ quiet amd_pstate=active icon=/EFI/refind/icons/os_arch.png\\"" > /boot/refind_linux.conf
 
-# 7. Wi-Fi
+# 10. Wi-Fi
 echo -e "[device]\\nwifi.backend=iwd" >> /etc/NetworkManager/NetworkManager.conf
-if [ -n "{ssid}" ]; then
-    mkdir -p /var/lib/iwd
-    cp /var/lib/iwd/{ssid}.psk /var/lib/iwd/ 2>/dev/null || true
-fi
 """
     with open("/mnt/final_setup.sh", "w") as f:
         f.write(chroot_script)
     run("arch-chroot /mnt bash /final_setup.sh")
+    
+    if ssid:
+        src = f"/var/lib/iwd/{ssid}.psk"
+        dst = f"/mnt/var/lib/iwd/{ssid}.psk"
+        if os.path.exists(src):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+
     os.remove("/mnt/final_setup.sh")
 
 if __name__ == "__main__":

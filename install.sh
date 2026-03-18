@@ -43,10 +43,11 @@ mount "${DISK}p1" /mnt/efi
 mkdir -p /mnt/efi/EFI/archlinux
 mount --bind /mnt/efi/EFI/archlinux /mnt/boot
 
-# 5. Pacstrap (Added zram-generator)
+# 5. Pacstrap (Added power-profiles-daemon)
 pacstrap -K /mnt base base-devel linux linux-firmware amd-ucode btrfs-progs \
     nano networkmanager refind git pacman-contrib zsh zsh-completions \
-    zsh-syntax-highlighting zsh-autosuggestions sudo xdg-user-dirs zram-generator
+    zsh-syntax-highlighting zsh-autosuggestions sudo xdg-user-dirs \
+    zram-generator power-profiles-daemon
 
 # 6. Fstab
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -66,9 +67,9 @@ systemctl enable NetworkManager
 systemctl enable paccache.timer
 systemctl enable btrfs-scrub@-.timer
 systemctl enable fstrim.timer
+systemctl enable power-profiles-daemon
 
 # 8. zram-generator Configuration
-# Setup zram0 with zstd compression and 100% of RAM capacity
 cat <<ZRAM > /etc/systemd/zram-generator.conf
 [zram0]
 zram-size = ram

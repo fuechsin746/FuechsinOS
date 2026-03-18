@@ -1,6 +1,6 @@
 # FüchsinOS | Arch Linux Technical Manual
 
-A minimalist, **XDG-compliant** Arch Linux deployment optimized for **AMD Ryzen 7320U** hardware with **Btrfs** and **rEFInd**.
+A minimalist, **XDG-compliant** Arch Linux deployment optimized for **AMD Ryzen 7320U** hardware with **Btrfs**, **rEFInd**, and **zram**.
 
 ---
 
@@ -16,24 +16,8 @@ A minimalist, **XDG-compliant** Arch Linux deployment optimized for **AMD Ryzen 
 | `/efi` | `/dev/nvme0n1p1` | `umask=0077` | EFI System Partition (ESP) |
 | `/boot` | `bind:/efi/EFI/archlinux` | `bind` | Kernel & Initramfs Storage |
 
----
-
-## 📂 XDG Base Directory Enforcement
-This system strictly follows the XDG specification to keep `$HOME` clean. Global variables are defined in `/etc/environment`.
-
-* **Config:** `~/.config` (e.g., `ZDOTDIR` is `~/.config/zsh`)
-* **Cache:** `~/.cache` (e.g., `paru` build artifacts)
-* **Data:** `~/.local/share` (e.g., `cargo`, `rustup`)
-* **State:** `~/.local/state` (e.g., `zsh_history`)
-
----
-
-## 🛠️ Maintenance & Recovery
-
-### Btrfs Health
-* **Scrub:** Automated monthly via `btrfs-scrub@-.timer`. Checks for data silent corruption.
-* **Trim:** Automated weekly via `fstrim.timer`. Maintains NVMe performance.
-* **Cleanup:** `paccache.timer` (from `pacman-contrib`) keeps only the last 3 versions of installed packages.
-
-### Snapper Rollback Procedure
-If the system becomes unstable or
+### Memory Optimization (zram)
+To maximize the 8GB RAM on the Ryzen 7320U, the system utilizes `zram-generator`:
+* **Device:** `/dev/zram0`
+* **Algorithm:** `zstd` (high compression ratio)
+* **Size:** 100% of available RAM (dynamic compression
